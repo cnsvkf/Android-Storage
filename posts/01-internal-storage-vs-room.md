@@ -1,40 +1,57 @@
-# [Android] 내부 파일 저장 vs Room, 언제 무엇을 쓸까?
+# 내부 파일 저장 vs Room: 무엇을 골라야 할까?
 
-> 로컬에 데이터를 저장할 때 가장 먼저 부딪히는 선택지는 **내부 파일 저장**과 **Room**입니다.
-> 이 글에서는 두 방식의 차이를 정리하고, 상황별 선택 기준을 정리합니다.
+> 앱이 데이터를 기기에 저장해야 할 때 보통 두 가지 중 하나를 고릅니다.
+> **내부 파일 저장**은 파일 한 개에 데이터를 통째로 넣는 방식이고,
+> **Room**은 데이터를 표(테이블) 형태로 정리해서 넣는 방식입니다.
+> 이 글을 읽고 나면 "내 데이터라면 어떤 방식을 써야 하지?"를 스스로 판단할 수 있게 됩니다.
 
 ---
 
-## 1. 한눈에 보기
+## 0. 먼저 알아두면 좋은 용어
+
+| 용어 | 쉽게 말하면 |
+|---|---|
+| 내부 저장소 | 앱만 열어 볼 수 있는 개인 창고. 앱을 지우면 함께 사라집니다. |
+| 파일(File) | 글을 적어 둔 메모지 한 장 |
+| 테이블(Table) | 엑셀의 시트. 행(줄)과 열(칸)로 이루어집니다. |
+| SQLite | 스마트폰 안에 들어 있는 작은 데이터베이스 엔진 |
+| Room | SQLite를 편하게 쓰도록 감싸 놓은 도구 |
+
+---
+
+## 1. 한눈에 비교하기
 
 | 구분 | 내부 파일 (JSON 등) | Room |
 |---|---|---|
-| 저장 형태 | 파일 1개 = 데이터 덩어리 | SQLite 테이블 (행 단위) |
-| 쿼리 | 직접 읽고 필터링 | SQL을 `@Query`로 작성, 컴파일 시 검증 |
-| 일부만 수정 | 파일 전체를 다시 씀 | `@Update`로 행 단위 수정 |
-| 변경 관찰 | 직접 구현 | `Flow`로 자동 갱신 |
-| 스키마 변경 | 직접 파싱·변환 | `Migration`으로 관리 |
-| 학습 비용 | 낮음 | 중간 (어노테이션·KSP 설정) |
-| 적합한 데이터 | 설정값, 임시 상태, 작은 목록 | 목록·관계가 있는 데이터, 검색이 많은 데이터 |
+| 비유 | 서랍 하나에 노트를 통째로 넣기 | 엑셀 시트에 행별로 정리하기 |
+| 한 항목만 바꿀 때 | 파일 전체를 다시 씀 | 그 행만 고침 |
+| 검색 | 전부 읽고 코드로 거름 | SQL 한 줄로 찾음 |
+| 화면 자동 갱신 | 직접 알림을 만들어야 함 | `Flow`로 자동 갱신 |
+| 구조가 바뀔 때 | 코드로 직접 변환 | `Migration`으로 관리 |
+| 준비 과정 | 거의 없음 | 어노테이션과 설정이 필요함 |
+| 어울리는 데이터 | 설정값, 작은 목록 | 목록이 많고 검색·정렬이 필요한 데이터 |
 
-> **한 줄 요약**
-> 데이터가 **작고 단순**하면 파일, **많고 조회가 복잡**하면 Room을 씁니다.
+> **한 줄 정리**
+> 데이터가 **작고 단순**하면 파일, **많고 자주 찾아봐야** 하면 Room입니다.
 
 ---
 
 ## 2. 내부 파일 저장
 
-앱 내부 저장소는 **해당 앱만 접근**할 수 있는 공간입니다. 주로 아래 디렉터리를 씁니다.
+### 2-1. 어디에 저장하나요?
 
-| 디렉터리 | 특징 |
-|---|---|
-| `filesDir` | 앱이 유지해야 하는 파일. 백업 대상 |
-| `noBackupFilesDir` | 앱이 유지해야 하지만 **백업에서 제외**할 파일 |
-| `cacheDir` | 임시 파일. 시스템이 공간 부족 시 지울 수 있음 |
+앱 안에는 파일을 둘 수 있는 폴더가 몇 개 있습니다.
 
-### 2-1. JSON 파일로 쓰기 (`AtomicFile`)
+| 폴더 | 특징 | 언제 쓰나요? |
+|---|---|---|
+| `filesDir` | 앱이 계속 가지고 있어야 하는 파일 (백업 대상) | 사용자 설정 |
+| `noBackupFilesDir` | 계속 가지고 있지만 백업에서는 뺌 | 기기마다 달라야 하는 값, 임시 전송 데이터 |
+| `cacheDir` | 임시 파일. 시스템이 공간이 모자라면 지울 수 있음 | 다시 만들 수 있는 파일 |
 
-파일을 쓰다가 앱이 꺼지면 파일이 깨질 수 있습니다. `AtomicFile`은 **임시 파일에 먼저 쓰고 마지막에 교체**하는 방식이라 이 문제를 줄여 줍니다.
+### 2-2. 파일을 안전하게 쓰는 방법: `AtomicFile`
+
+파일에 쓰는 도중에 앱이 꺼지면 파일이 반만 쓰인 채로 남을 수 있습니다.
+`AtomicFile`은 **임시 파일에 먼저 다 쓰고, 다 쓰면 원래 파일과 바꿔치기**하는 방식이라 이런 문제를 막아 줍니다.
 
 ```kotlin
 import android.content.Context
@@ -44,22 +61,22 @@ import java.io.IOException
 
 class MemoLocalStore(context: Context) {
 
-    // 백업에서 제외되는 내부 저장소 경로
+    // 저장 위치: 백업에서 빠지는 내부 폴더 안의 memos.json
     private val atomicFile = AtomicFile(File(context.noBackupFilesDir, "memos.json"))
 
-    // 저장: 임시 파일에 쓴 뒤 교체한다
+    // 저장하기
     fun save(json: String) {
-        val stream = atomicFile.startWrite()
+        val stream = atomicFile.startWrite()   // 임시 파일 열기
         try {
             stream.write(json.toByteArray(Charsets.UTF_8))
-            atomicFile.finishWrite(stream) // 성공하면 실제 파일로 교체
+            atomicFile.finishWrite(stream)     // 성공: 임시 파일을 진짜 파일로 바꿈
         } catch (e: IOException) {
-            atomicFile.failWrite(stream)   // 실패하면 임시 파일을 버림
+            atomicFile.failWrite(stream)       // 실패: 임시 파일을 버리고 기존 파일은 그대로 둠
             throw e
         }
     }
 
-    // 읽기: 파일이 없으면 null
+    // 불러오기 (파일이 없으면 null)
     fun load(): String? {
         if (!atomicFile.baseFile.exists()) return null
         return atomicFile.readFully().toString(Charsets.UTF_8)
@@ -67,50 +84,55 @@ class MemoLocalStore(context: Context) {
 }
 ```
 
-**장점**
-- 설정, 로그인 상태처럼 값이 적은 데이터를 빠르게 저장할 수 있습니다.
-- 별도 설정이 필요 없습니다.
+**코드 읽는 순서**
+1. `startWrite()`로 임시 파일을 엽니다.
+2. 내용을 씁니다.
+3. 성공하면 `finishWrite()`, 실패하면 `failWrite()`를 부릅니다.
 
-**단점**
-- 한 항목만 바꿔도 **파일 전체**를 다시 써야 합니다.
-- 검색·정렬·필터를 전부 코드로 직접 구현해야 합니다.
-- 여러 곳에서 동시에 쓰면 **동기화를 직접** 맞춰야 합니다.
+### 2-3. 장단점
 
-> 값 하나씩 저장한다면 **DataStore**도 좋은 선택지입니다. 이 글에서는 파일과 Room 비교에 집중합니다.
+- ✅ 설정 한두 개처럼 **작은 데이터**를 빠르게 저장할 수 있습니다.
+- ✅ 준비할 것이 거의 없습니다.
+- ❌ 항목 하나만 바꿔도 **파일 전체**를 다시 써야 합니다.
+- ❌ 검색, 정렬, 필터를 모두 **직접 코드로** 구현해야 합니다.
+- ❌ 여러 곳에서 동시에 고치면 충돌을 **직접** 막아야 합니다.
+
+> 설정 값 하나씩 저장한다면 **DataStore**도 좋습니다. 이 글에서는 파일과 Room의 차이에 집중합니다.
 
 ---
 
 ## 3. Room
 
-Room은 SQLite 위에 얹힌 **추상화 계층**입니다. Android 공식 문서도 SQLite API를 직접 쓰기보다 Room을 권장합니다.
+### 3-1. Room을 이루는 3가지 조각
 
-Room의 핵심 구성 요소는 3가지입니다.
+Room은 조각 3개를 맞춰서 동작합니다. 이 세 가지만 알면 대부분의 코드를 읽을 수 있습니다.
 
-| 구성 요소 | 역할 |
-|---|---|
-| `@Entity` | 테이블 1개 = 데이터 클래스 1개 |
-| `@Dao` | 쿼리 함수 모음 (조회·삽입·수정·삭제) |
-| `@Database` | DB의 진입점. Dao를 꺼내 쓰는 곳 |
+| 조각 | 하는 일 | 비유 |
+|---|---|---|
+| `@Entity` | 테이블 하나를 정의 | 엑셀 시트의 열 제목 |
+| `@Dao` | 데이터를 읽고 쓰는 함수 모음 | 시트에서 찾기·고치기 버튼 |
+| `@Database` | 전체 데이터베이스의 입구 | 엑셀 파일 자체 |
 
-### 3-1. 최소 코드
+### 3-2. 가장 작은 예제
 
 ```kotlin
-// 1) Entity: 테이블 정의
+// 1) Entity: "memo"라는 표를 정의합니다. 한 줄이 메모 한 개입니다.
 @Entity(tableName = "memo")
 data class Memo(
-    @PrimaryKey val id: Long,
-    @ColumnInfo(name = "title") val title: String,
-    @ColumnInfo(name = "created_at") val createdAt: Long,
+    @PrimaryKey val id: Long,                              // 행을 구분하는 번호
+    @ColumnInfo(name = "title") val title: String,         // 제목 칸
+    @ColumnInfo(name = "created_at") val createdAt: Long,  // 만든 시각 칸
 )
 
-// 2) Dao: 쿼리 정의
+// 2) Dao: 표를 다루는 함수들입니다.
 @Dao
 interface MemoDao {
 
-    // Flow로 반환하면 데이터가 바뀔 때마다 자동으로 새 값이 흘러나온다
+    // 최신 메모부터 보여 줍니다. Flow라서 표가 바뀌면 자동으로 새 목록이 나옵니다.
     @Query("SELECT * FROM memo ORDER BY created_at DESC")
     fun observeAll(): Flow<List<Memo>>
 
+    // 같은 id가 있으면 고치고, 없으면 추가합니다.
     @Upsert
     suspend fun upsert(memo: Memo)
 
@@ -118,72 +140,88 @@ interface MemoDao {
     suspend fun deleteById(id: Long)
 }
 
-// 3) Database: 진입점
+// 3) Database: 입구입니다. 어떤 표(entities)를 가지는지 알려 줍니다.
 @Database(entities = [Memo::class], version = 1)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun memoDao(): MemoDao
 }
 ```
 
-생성은 보통 앱에서 **한 번만** 합니다(싱글턴).
+> `Flow`와 `suspend`는 코루틴 기능입니다. `Flow`는 "값이 바뀔 때마다 계속 알려 주는 흐름", `suspend`는 "기다려야 끝나는 함수"라고 생각하면 됩니다.
+
+### 3-3. 데이터베이스 만들기
+
+데이터베이스는 앱 전체에서 **한 번만** 만듭니다. 여러 번 만들면 낭비이고 문제가 생길 수 있습니다.
 
 ```kotlin
 val db = Room.databaseBuilder<AppDatabase>(
     applicationContext,
     "app-database",
 )
-    .setDriver(AndroidSQLiteDriver()) // Room 3.0 기준 드라이버 설정
+    .setDriver(AndroidSQLiteDriver()) // Room 3.0 기준 설정
     .build()
 
 val memoDao = db.memoDao()
 ```
 
-> 이 예시는 Room 3.0 문서(`androidx.room3`) 기준입니다. 프로젝트 버전에 따라 패키지와 빌더 호출이 다를 수 있으니 사용 중인 버전 문서를 함께 확인하세요.
+> 이 예제는 Room 3.0(`androidx.room3`) 문서를 기준으로 합니다. 사용하는 Room 버전이 다르면 패키지 이름과 빌더 호출이 달라질 수 있습니다.
 
-### 3-2. Room의 장점
+### 3-4. Room의 장점과 단점
 
-- **컴파일 시 SQL 검증**: 쿼리에 오타가 있으면 빌드 단계에서 잡힙니다.
-- **Flow 관찰**: 화면은 DB 변경을 구독하기만 하면 됩니다.
-- **마이그레이션**: 스키마가 바뀌면 `Migration`으로 기존 데이터를 옮길 수 있습니다.
-- **보일러플레이트 감소**: 커서 처리와 행 변환 코드를 직접 짤 필요가 없습니다.
+**장점**
+- 📌 **SQL 오타를 빌드할 때 잡아 줍니다.** 실행해 보고서야 에러를 아는 일이 줄어듭니다.
+- 📌 **`Flow`로 화면을 자동 갱신**할 수 있습니다.
+- 📌 **`Migration`**으로 구조가 바뀌어도 기존 데이터를 옮길 수 있습니다.
 
-### 3-3. Room의 단점
-
-- 어노테이션, KSP 설정, Entity·Dao·Database 클래스가 늘어납니다.
-- **스키마를 바꾸면 버전 관리와 마이그레이션을 반드시** 챙겨야 합니다.
-- 데이터가 아주 작으면 과한 구조가 될 수 있습니다.
+**단점**
+- 📌 설정할 것(어노테이션, KSP, Entity·Dao·Database 클래스)이 늘어납니다.
+- 📌 **구조를 바꾸면 버전과 Migration을 반드시** 챙겨야 합니다.
+- 📌 데이터가 아주 적으면 과한 준비일 수 있습니다.
 
 ---
 
-## 4. 같은 기능을 두 방식으로 비교하기
+## 4. 같은 기능을 두 방식으로 만들면?
 
-"메모 목록을 저장하고, 제목 검색을 하고, 변경되면 화면을 갱신한다"는 요구를 생각해 봅니다.
+"메모를 저장하고, 제목으로 검색하고, 바뀌면 화면을 갱신한다"는 기능을 예로 들어 봅니다.
 
-| 요구 | 파일 | Room |
+| 해야 할 일 | 파일 방식 | Room 방식 |
 |---|---|---|
 | 메모 저장 | 전체 목록을 JSON으로 다시 씀 | `upsert` 한 번 |
-| 제목 검색 | 목록을 읽어 `filter` | `WHERE title LIKE :keyword` |
-| 화면 갱신 | 변경 때마다 직접 알림 | `Flow`가 자동으로 새 값 전달 |
-| 스키마 변경(필드 추가) | JSON 파싱 로직 수정 + 기존 파일 호환 처리 | `Migration` 작성 |
+| 제목 검색 | 목록을 읽고 `filter`로 거름 | `WHERE title LIKE :keyword` |
+| 화면 갱신 | 바뀔 때마다 직접 알림 | `Flow`가 알아서 전달 |
+| 구조 변경 (칸 추가) | JSON 읽는 코드를 고치고 옛 파일도 처리 | `Migration` 작성 |
 
-> 메모가 수십 개라면 파일 방식도 충분합니다. 수천 개 이상이고 검색과 정렬이 많아지면 Room이 훨씬 편합니다.
+> 메모가 **수십 개**라면 파일로도 충분합니다.
+> 메모가 **수천 개**이고 검색·정렬이 많다면 Room이 훨씬 편합니다.
 
 ---
 
-## 5. 선택 기준 정리
+## 5. 어떤 방식을 고를까? (3단계 질문)
 
 ```
-데이터가 작고 단순한가?
-├─ 예 → 내부 파일 (또는 DataStore)
-└─ 아니오
-   ├─ 목록·관계·검색이 많은가? → Room
-   └─ 여러 화면에서 실시간 반영이 필요한가? → Room + Flow
+1. 데이터가 작고 단순한가?
+   ├─ 예  → 내부 파일 (값이 적으면 DataStore도 좋음)
+   └─ 아니오 → 2번으로
+2. 목록이 길고, 검색·정렬·관계가 필요한가?
+   ├─ 예  → Room
+   └─ 아니오 → 내부 파일도 괜찮음
+3. 화면이 데이터 변화를 즉시 반영해야 하는가?
+   └─ 예 → Room + Flow
 ```
 
-**정리**
-- 설정값, 토큰처럼 작은 값 → **DataStore** 또는 파일
-- 임시 전송 큐, 작은 JSON 상태 → **파일** (`AtomicFile`로 깨짐 방지)
-- 목록·검색·관계가 있는 로컬 데이터 → **Room**
+**기억할 한 문장**
+> "작고 단순하면 파일, 많고 찾아봐야 하면 Room."
+
+---
+
+## 6. 자주 하는 실수
+
+| 실수 | 이렇게 고치세요 |
+|---|---|
+| 파일을 `cacheDir`에 저장하고 영구 데이터로 씀 | 영구 데이터는 `filesDir` 또는 `noBackupFilesDir` |
+| `AtomicFile` 없이 바로 `FileOutputStream`에 씀 | `startWrite` · `finishWrite`를 사용 |
+| Room 데이터베이스를 화면마다 새로 만듦 | 한 번만 만들고 재사용 |
+| 구조를 바꾸고 버전을 올리지 않음 | `version`을 올리고 `Migration` 작성 |
 
 ---
 
@@ -192,4 +230,4 @@ val memoDao = db.memoDao()
 - [Save data in a local database using Room (Android Developers)](https://developer.android.com/training/data-storage/room)
 - [Data and file storage overview (Android Developers)](https://developer.android.com/training/data-storage)
 
-> 조사 시점: 2026-11-02. 예제는 공식 문서의 Room 3.0 설정을 기준으로 작성했습니다.
+> 조사 시점: 2026-11-02. Room 예제는 Room 3.0 공식 문서를 기준으로 작성했습니다.
